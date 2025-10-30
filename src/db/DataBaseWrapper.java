@@ -1,8 +1,10 @@
+package db;
+
+import logger.Logger;
 import structures.NotificationInfo;
 
 import java.sql.*;
 import java.util.ArrayList;
-import java.util.Collections;
 
 
 public class DataBaseWrapper {
@@ -96,11 +98,22 @@ public class DataBaseWrapper {
         return sample;
     }
 
-    boolean thereIsAEarlierNotification(long fireAt){
+    public boolean thereIsAEarlierNotification(long fireAt){
 
         // earliest notification in the db
         NotificationInfo n = getEarliestNotifications(1).get(0);
 
         return n.getFireAt() < fireAt;
+    }
+
+    public void deleteNotification(int id){
+        Logger.info("Deleting notification from db: " + id);
+        String query = "DELETE FROM alarms WHERE id = " + id;
+        assert conn != null;
+        try (Statement stmt = conn.createStatement()){
+            stmt.executeUpdate(query);
+        } catch (SQLException e) {
+            Logger.error("Failed to delete notification with id " + id + ": " + e.getMessage());
+        }
     }
 }

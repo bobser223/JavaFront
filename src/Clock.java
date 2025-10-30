@@ -1,6 +1,8 @@
+import db.DataBaseWrapper;
+import logger.Logger;
 import structures.NotificationInfo;
 
-import java.sql.*;
+import java.math.BigInteger;
 import java.util.*;
 
 
@@ -29,25 +31,40 @@ public class Clock {
     }
 
     public void NotifyingCylce(DataBaseWrapper db) throws InterruptedException {
+        BigInteger i = new BigInteger("1");
         while (isRunning){
+            Logger.info("Running clock cycle " + i.intValue());
 
             if (!notifications.isEmpty()) {
-                if (db.thereIsAEarlierNotification(notifications.peek().getFireAt()))
+                Logger.warn("No notifications left in queue.");
+                if (db.thereIsAEarlierNotification(notifications.peek().getFireAt())){
+                    Logger.warn("There is an earlier notification in the db.");
                     addNotificationsFromDB(db);
+                }
+
 
             } else {
-                System.out.println("[warning] [Clock] No notifications left in queue.");
+                Logger.warn("No notifications left in queue.");
                 addNotificationsFromDB(db);
             }
 
 
 
-            if (checkFirstNotification())
-                Notify(Objects.requireNonNull(notifications.poll()));
+            if (checkFirstNotification()){
+                Logger.info("First notification is due.");
+                var n = Objects.requireNonNull(notifications.poll());
+                Notify(Objects.requireNonNull(n));
+                Logger.info("Notified: " + n.toString());
 
 
+                db.deleteNotification(n.getId());
+
+            }
 
 
+            i = i.add(BigInteger.ONE);
+
+            Logger.info("Clock cycle " + i.intValue() + " finished.");
             Thread.sleep(millisecondsToSleep);
         }
     }
