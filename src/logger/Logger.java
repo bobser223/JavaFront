@@ -10,7 +10,7 @@ public class Logger {
 
     public enum OutputType { CONSOLE, FILE }
 
-    private static OutputType output = OutputType.CONSOLE;
+    private static OutputType output = OutputType.FILE;
     private static String logFilePath = "application.log";
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 

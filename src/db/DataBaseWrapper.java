@@ -16,7 +16,7 @@ public class DataBaseWrapper {
         DataBaseWrapper db = new DataBaseWrapper();
         db.makeDb();
 
-        db.closeDb();
+//        db.closeDb();
     }
 
     public DataBaseWrapper() {
@@ -37,12 +37,12 @@ public class DataBaseWrapper {
         }
     }
 
-
     public void makeDb(){
 
         String createAlarmsTable = """
-        create table if not exists alarms(
+        create table if not exists notifications(
             id integer primary key autoincrement,
+            webId integer not null,
             title text not null,
             payload text,
             fire_at integer not null  -- epoch seconds (UTC)
@@ -60,9 +60,10 @@ public class DataBaseWrapper {
         try(Statement stmt = conn.createStatement()){
 
             stmt.execute(createAlarmsTable);
+            Logger.info("Created database table.");
 
         } catch (SQLException e) {
-            System.out.println("Statement creation failed: " + e.getMessage());
+            Logger.error("Failed to create database table: " + e.getMessage());
         }
     }
 
@@ -80,13 +81,14 @@ public class DataBaseWrapper {
     public ArrayList<NotificationInfo> getEarliestNotifications(int sampleSize){
         ArrayList<NotificationInfo> sample = new ArrayList<>();
 
-        String query = "SELECT * FROM alarms ORDER BY fire_at LIMIT " + sampleSize;
+        String query = "SELECT * FROM notifications ORDER BY fire_at LIMIT " + sampleSize;
 
         assert conn != null;
         try (Statement stmt = conn.createStatement()){
             ResultSet rs = stmt.executeQuery(query);
             while (rs.next()) {
                 sample.add(new NotificationInfo(rs.getInt("id"),
+                        rs.getInt("webId"),
                         rs.getString("title"),
                         rs.getString("payload"),
                         rs.getLong("fire_at")));
@@ -101,19 +103,49 @@ public class DataBaseWrapper {
     public boolean thereIsAEarlierNotification(long fireAt){
 
         // earliest notification in the db
-        NotificationInfo n = getEarliestNotifications(1).get(0);
+        ArrayList<NotificationInfo> earliest = getEarliestNotifications(1);
+        if (earliest.isEmpty()) {
+            return false;
+        }
+        NotificationInfo n = earliest.get(0);
 
         return n.getFireAt() < fireAt;
     }
 
     public void deleteNotification(int id){
         Logger.info("Deleting notification from db: " + id);
-        String query = "DELETE FROM alarms WHERE id = " + id;
+        String query = "DELETE FROM notifications WHERE id = " + id;
         assert conn != null;
         try (Statement stmt = conn.createStatement()){
             stmt.executeUpdate(query);
         } catch (SQLException e) {
             Logger.error("Failed to delete notification with id " + id + ": " + e.getMessage());
+        }
+    }
+
+    public void addNotification(NotificationInfo n){
+        Logger.info("Adding notification to db: " + n.toString());
+        String sql = "INSERT INTO notifications (webId, title, payload, fire_at) VALUES (?, ?, ?, ?)";
+        assert conn != null;
+        try (PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            pstmt.setInt(1, n.getWebId());
+            pstmt.setString(2, n.getTitle());
+            if (n.getPayload() == null) {
+                pstmt.setNull(3, Types.VARCHAR);
+            } else {
+                pstmt.setString(3, n.getPayload());
+            }
+            pstmt.setLong(4, n.getFireAt());
+            pstmt.executeUpdate();
+
+            try (ResultSet generatedKeys = pstmt.getGeneratedKeys()) {
+                if (generatedKeys.next()) {
+                    n.setId(generatedKeys.getInt(1));
+                }
+            }
+            Logger.info("Notification added to db: " + n.toString());
+        } catch (SQLException e) {
+            Logger.error("Failed to add notification: " + e.getMessage());
         }
     }
 }
