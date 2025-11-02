@@ -1,11 +1,10 @@
 import db.DataBaseWrapper;
-import logger.Logger;
-import structures.NotificationInfo;
-import web.Client;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
+import logger.Logger;
+import structures.NotificationInfo;
+import web.Client;
 
 
 //TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
@@ -13,6 +12,7 @@ import java.util.Scanner;
 public class Main {
 
     String name, password;
+    boolean superuser;
 
     public static boolean yesNo2Bool(String answer){
         if (answer == null) {
@@ -42,6 +42,7 @@ public class Main {
 
         this.name = auth[0];
         this.password = auth[1];
+        this.superuser = false;
 
         Client.setCredentials(this.name, this.password);
 
@@ -49,12 +50,16 @@ public class Main {
         if (!existance) {
             status = Client.sendAuth(auth);
         } else {
-//            boolean valid = Client.validateCredentials();
-//            status = valid ? 1 : 0;
-//            if (!valid) {
-//                Logger.warn("Provided credentials were rejected by the web service.");
-//            }
-            status = 1;
+           boolean valid = Client.validateCredentials();
+           status = valid ? 1 : 0;
+           if (!valid) {
+               Logger.warn("Provided credentials were rejected by the web service.");
+           }
+            if (status == 1) {
+                System.out.println("Are you an administrator? <yes/no> || <y/n>");
+                this.superuser = yesNo2Bool(scanner.nextLine());
+                Logger.info("Registration superuser flag: " + this.superuser);
+            }
         }
         Logger.info("Auth status: " + status);
 
@@ -121,10 +126,88 @@ public class Main {
             return;
         }
 
-        if (Client.deleteNotifications(ids, false)) {
+        if (Client.deleteNotifications(ids, superuser)) {
             Logger.info("Requested remote deletion for notifications " + ids);
         } else {
             Logger.warn("Failed to delete notifications " + ids + " on remote server");
+        }
+    }
+
+    private boolean requireSuperuser() {
+        if (!superuser) {
+            Logger.warn("Attempted to perform admin-only operation without privileges.");
+            System.out.println("This command is available only to administrators.");
+            return false;
+        }
+        return true;
+    }
+
+    public void handleAddUserAsSuperuser() {
+        if (!requireSuperuser()) {
+            return;
+        }
+
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Enter username to create/update: ");
+        String targetUsername = scanner.nextLine().trim();
+
+        if (targetUsername.isEmpty()) {
+            Logger.warn("No username provided for admin user creation.");
+            System.out.println("Username cannot be empty.");
+            return;
+        }
+
+        System.out.println("Enter password for the user: ");
+        String targetPassword = scanner.nextLine();
+
+        System.out.println("Should this user be an administrator? <yes/no> || <y/n>");
+        boolean makeAdmin = yesNo2Bool(scanner.nextLine());
+
+        boolean success = Client.registerUserAsSuperuser(targetUsername, targetPassword, makeAdmin);
+        if (success) {
+            Logger.info("Superuser created or updated user " + targetUsername);
+            System.out.println("User " + targetUsername + " created/updated successfully.");
+        } else {
+            Logger.warn("Failed to create or update user " + targetUsername);
+            System.out.println("Failed to create/update user " + targetUsername + ".");
+        }
+    }
+
+    public void handleDeleteUsersAsSuperuser() {
+        if (!requireSuperuser()) {
+            return;
+        }
+
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Enter usernames to delete (comma separated): ");
+        String line = scanner.nextLine();
+
+        if (line == null || line.isBlank()) {
+            Logger.warn("No usernames entered for deletion.");
+            return;
+        }
+
+        String[] tokens = line.split(",");
+        List<String> usernames = new ArrayList<>();
+        for (String token : tokens) {
+            String trimmed = token.trim();
+            if (!trimmed.isEmpty()) {
+                usernames.add(trimmed);
+            }
+        }
+
+        if (usernames.isEmpty()) {
+            Logger.warn("No valid usernames provided for deletion.");
+            return;
+        }
+
+        boolean success = Client.deleteUsers(usernames);
+        if (success) {
+            Logger.info("Superuser deleted users " + usernames);
+            System.out.println("Users " + usernames + " deleted successfully.");
+        } else {
+            Logger.warn("Failed to delete users " + usernames);
+            System.out.println("Failed to delete users " + usernames + ".");
         }
     }
 
@@ -161,6 +244,8 @@ public class Main {
                     System.out.println("add notifications - create a notification and push it to the server");
                     System.out.println("show notifications - print remote notifications");
                     System.out.println("delete notifications - remove notifications from remote server");
+                    System.out.println("add user - create or update a user via admin API");
+                    System.out.println("delete users - remove users via admin API");
                     break;
                 case "add notifications", "an":
                     Logger.info("Adding notifications...");
@@ -172,6 +257,14 @@ public class Main {
                 case "delete notifications", "dn":
                     Logger.info("Deleting notifications...");
                     app.handleDeleteNotifications();
+                    break;
+                case "add user", "au":
+                    Logger.info("Admin requested to add user...");
+                    app.handleAddUserAsSuperuser();
+                    break;
+                case "delete users", "du":
+                    Logger.info("Admin requested to delete users...");
+                    app.handleDeleteUsersAsSuperuser();
                     break;
 
 
