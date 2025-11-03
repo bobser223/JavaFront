@@ -12,7 +12,6 @@ import web.Client;
 public class Main {
 
     String name, password;
-    boolean superuser;
 
     public static boolean yesNo2Bool(String answer){
         if (answer == null) {
@@ -42,7 +41,6 @@ public class Main {
 
         this.name = auth[0];
         this.password = auth[1];
-        this.superuser = false;
 
         Client.setCredentials(this.name, this.password);
 
@@ -55,11 +53,6 @@ public class Main {
            if (!valid) {
                Logger.warn("Provided credentials were rejected by the web service.");
            }
-            if (status == 1) {
-                System.out.println("Are you an administrator? <yes/no> || <y/n>");
-                this.superuser = yesNo2Bool(scanner.nextLine());
-                Logger.info("Registration superuser flag: " + this.superuser);
-            }
         }
         Logger.info("Auth status: " + status);
 
@@ -126,7 +119,22 @@ public class Main {
             return;
         }
 
-        if (Client.deleteNotifications(ids, superuser)) {
+        Boolean adminStatus;
+        try {
+            adminStatus = Client.fetchAdminStatus();
+        } catch (IllegalStateException e) {
+            Logger.warn("Cannot verify admin status for deletion: " + e.getMessage());
+            System.out.println("Failed to verify credentials. Please re-authenticate.");
+            return;
+        }
+
+        boolean useAdminEndpoint = Boolean.TRUE.equals(adminStatus);
+        if (adminStatus == null) {
+            Logger.warn("Unable to verify administrative privileges; using standard deletion endpoint.");
+            System.out.println("Could not verify administrative privileges; attempting regular deletion.");
+        }
+
+        if (Client.deleteNotifications(ids, useAdminEndpoint)) {
             Logger.info("Requested remote deletion for notifications " + ids);
         } else {
             Logger.warn("Failed to delete notifications " + ids + " on remote server");
@@ -134,7 +142,22 @@ public class Main {
     }
 
     private boolean requireSuperuser() {
-        if (!superuser) {
+        Boolean adminStatus;
+        try {
+            adminStatus = Client.fetchAdminStatus();
+        } catch (IllegalStateException e) {
+            Logger.warn("Cannot verify admin status: " + e.getMessage());
+            System.out.println("Failed to verify credentials. Please re-authenticate.");
+            return false;
+        }
+
+        if (adminStatus == null) {
+            Logger.warn("Unable to verify administrative privileges from server.");
+            System.out.println("Could not verify administrative privileges. Please try again later.");
+            return false;
+        }
+
+        if (!adminStatus) {
             Logger.warn("Attempted to perform admin-only operation without privileges.");
             System.out.println("This command is available only to administrators.");
             return false;

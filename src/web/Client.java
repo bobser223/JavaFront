@@ -26,6 +26,8 @@ public final class Client {
 
     private static final String DEFAULT_HOST = "127.0.0.1";
     private static final int DEFAULT_PORT = 1488;
+    private static final Pattern ADMIN_STATUS_PATTERN =
+            Pattern.compile("\"isAdmin\"\\s*:\\s*(true|false)", Pattern.CASE_INSENSITIVE);
 
     private static String host = DEFAULT_HOST;
     private static int port = DEFAULT_PORT;
@@ -154,6 +156,36 @@ public final class Client {
         }
 
         return true;
+    }
+
+    /**
+     * Запитує статус адміністратора для поточного користувача.
+     *
+     * @return {@code Boolean.TRUE}, якщо користувач є адміністратором; {@code Boolean.FALSE}, якщо ні;
+     * {@code null}, якщо не вдалося отримати статус
+     */
+    public static Boolean fetchAdminStatus() {
+        ensureCredentials();
+        HttpResponse response = execute("GET", "/users/status", null, true);
+
+        if (response == null) {
+            Logger.warn("Failed to fetch admin status: no response from server.");
+            return null;
+        }
+        if (response.statusCode() == 401) {
+            Logger.warn("Failed to fetch admin status: unauthorized.");
+            return null;
+        }
+        if (!response.isSuccessful()) {
+            Logger.warn("Failed to fetch admin status: status " + response.statusCode());
+            return null;
+        }
+
+        Boolean parsed = parseAdminStatus(response.body());
+        if (parsed == null) {
+            Logger.warn("Failed to parse admin status from response: " + response.body());
+        }
+        return parsed;
     }
 
     /**
@@ -408,6 +440,19 @@ public final class Client {
 
         sb.append("]");
         return sb.toString();
+    }
+
+    private static Boolean parseAdminStatus(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return null;
+        }
+
+        Matcher matcher = ADMIN_STATUS_PATTERN.matcher(responseBody);
+        if (!matcher.find()) {
+            return null;
+        }
+
+        return Boolean.parseBoolean(matcher.group(1));
     }
 
     private static UploadResponse parseUploadResponse(String responseBody) {
