@@ -87,17 +87,21 @@ public class DataBaseWrapper {
         try (Statement stmt = conn.createStatement()){
             ResultSet rs = stmt.executeQuery(query);
             while (rs.next()) {
-                sample.add(new NotificationInfo(rs.getInt("id"),
-                        rs.getInt("webId"),
-                        rs.getString("title"),
-                        rs.getString("payload"),
-                        rs.getLong("fire_at")));
+                sample.add(mapNotification(rs));
             }
 
         } catch (SQLException e) {
             System.out.println("Statement creation failed " + e.getMessage());
         }
         return sample;
+    }
+
+    private NotificationInfo mapNotification(ResultSet rs) throws SQLException {
+        return new NotificationInfo(rs.getInt("id"),
+                rs.getInt("webId"),
+                rs.getString("title"),
+                rs.getString("payload"),
+                rs.getLong("fire_at"));
     }
 
     public boolean thereIsAEarlierNotification(long fireAt){
@@ -147,5 +151,58 @@ public class DataBaseWrapper {
         } catch (SQLException e) {
             Logger.error("Failed to add notification: " + e.getMessage());
         }
+    }
+
+    public NotificationInfo getNotificationByWebId(int webId) {
+        if (webId <= 0) {
+            return null;
+        }
+        String query = "SELECT * FROM notifications WHERE webId = ?";
+        assert conn != null;
+        try (PreparedStatement pstmt = conn.prepareStatement(query)) {
+            pstmt.setInt(1, webId);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    return mapNotification(rs);
+                }
+            }
+        } catch (SQLException e) {
+            Logger.error("Failed to fetch notification with webId " + webId + ": " + e.getMessage());
+        }
+        return null;
+    }
+
+    public NotificationInfo upsertNotificationByWebId(NotificationInfo info) {
+        if (info == null || info.getWebId() <= 0) {
+            Logger.warn("Skipping upsert for notification without webId.");
+            return null;
+        }
+
+        NotificationInfo existing = getNotificationByWebId(info.getWebId());
+        if (existing == null) {
+            addNotification(info);
+            return info;
+        }
+
+        String sql = "UPDATE notifications SET title = ?, payload = ?, fire_at = ? WHERE webId = ?";
+        assert conn != null;
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, info.getTitle());
+            if (info.getPayload() == null) {
+                pstmt.setNull(2, Types.VARCHAR);
+            } else {
+                pstmt.setString(2, info.getPayload());
+            }
+            pstmt.setLong(3, info.getFireAt());
+            pstmt.setInt(4, info.getWebId());
+            pstmt.executeUpdate();
+            existing.setTitle(info.getTitle());
+            existing.setPayload(info.getPayload());
+            existing.setFireAt(info.getFireAt());
+            Logger.info("Notification updated in db: " + existing.toString());
+        } catch (SQLException e) {
+            Logger.error("Failed to update notification with webId " + info.getWebId() + ": " + e.getMessage());
+        }
+        return existing;
     }
 }

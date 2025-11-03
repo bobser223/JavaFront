@@ -61,7 +61,7 @@ public class Main {
 
     public int handleAddNotification(DataBaseWrapper db){
         String title, payload;
-        long fireAt;
+        long delaySeconds;
         Boolean sendToWeb = false;
 
         Scanner scanner = new Scanner(System.in);
@@ -69,9 +69,11 @@ public class Main {
         Logger.info("Adding notification with title " + title);
         System.out.println("Enter payload: "); payload = scanner.nextLine();
         Logger.info("Adding notification with payload " + payload);
-        System.out.println("Enter fire_at (epoch seconds): "); fireAt = scanner.nextLong();
-        Logger.info("Adding notification with fire_at " + fireAt);
+        System.out.println("Enter delay in seconds from now: "); delaySeconds = scanner.nextLong();
+        Logger.info("Adding notification with delay " + delaySeconds + " seconds");
         scanner.nextLine(); // consume leftover newline
+        long fireAt = (System.currentTimeMillis() / 1000L) + delaySeconds;
+        Logger.info("Calculated fire_at timestamp " + fireAt);
         System.out.println("Do you want to send to web? <yes/no> || <y/n>"); sendToWeb = yesNo2Bool(scanner.nextLine());
         Logger.info("Adding notification with sendToWeb " + sendToWeb);
 
@@ -244,12 +246,25 @@ public class Main {
     public static void main(String[] args) {
 
         DataBaseWrapper db = new DataBaseWrapper();
+        db.makeDb();
+        Clock clock = new Clock();
         Main app = new Main();
 
         int status = 0;
         while(status != 1){
             status = app.handleRegistration();
         }
+
+        Thread clockThread = new Thread(() -> {
+            try {
+                clock.NotifyingCylce(db);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                Logger.warn("Notification clock interrupted");
+            }
+        }, "notification-clock");
+        clockThread.setDaemon(true);
+        clockThread.start();
 
         label:
         while (true){
@@ -260,6 +275,8 @@ public class Main {
             switch (input) {
                 case "exit":
                     Logger.info("Exiting...");
+                    clock.stop();
+                    clockThread.interrupt();
                     break label;
                 case "help":
                     System.out.println("exit - to exit");
@@ -300,5 +317,12 @@ public class Main {
 
 
         }
+        clock.stop();
+        try {
+            clockThread.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        db.closeDb();
     }
 }

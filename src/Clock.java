@@ -1,93 +1,104 @@
 import db.DataBaseWrapper;
 import logger.Logger;
 import structures.NotificationInfo;
+import web.Client;
 
 import java.math.BigInteger;
-import java.util.*;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.PriorityQueue;
+import java.util.Set;
 
 
 public class Clock {
-    PriorityQueue<NotificationInfo> notifications;
-    int sampleSizeToHold = 10;
-    int sampleSizeToLoad = 10;
-    boolean isRunning = true;
-    int millisecondsToSleep = 500;
-    int delta = 50;
+    private final PriorityQueue<NotificationInfo> notifications =
+            new PriorityQueue<>(Comparator.comparingLong(NotificationInfo::getFireAt));
+    private final Set<Integer> knownNotificationIds = new HashSet<>();
+    private final int sampleSizeToLoad = 10;
+    private volatile boolean isRunning = true;
+    private final int millisecondsToSleep = 500;
+    private final long deltaMillis = 1_000;
+    private final long remoteSyncIntervalMillis = 30_000;
+    private final int minQueueSizeBeforeRemoteSync = 3;
+    private long lastRemoteSyncMillis = 0;
 
     public Clock() {}
-
-    public static boolean inDeltaNeighbourhood(long time, long delta){
-        return Math.abs(time - System.currentTimeMillis()) < delta;
-    }
 
     public void Notify(NotificationInfo info){
         System.out.println("Notifying: " + info.toString());
     }
 
     public boolean checkFirstNotification(){
-        if (notifications.isEmpty()) return false;
-        return inDeltaNeighbourhood(notifications.peek().getFireAt(), delta);
-
+        NotificationInfo next = notifications.peek();
+        if (next == null) {
+            return false;
+        }
+        long fireAtMillis = normalizeToMillis(next.getFireAt());
+        return fireAtMillis <= System.currentTimeMillis() + deltaMillis;
     }
 
     public void NotifyingCylce(DataBaseWrapper db) throws InterruptedException {
         BigInteger i = new BigInteger("1");
         while (isRunning){
-            Logger.info("Running clock cycle " + i.intValue());
-
-            if (!notifications.isEmpty()) {
-                Logger.warn("No notifications left in queue.");
-                if (db.thereIsAEarlierNotification(notifications.peek().getFireAt())){
-                    Logger.warn("There is an earlier notification in the db.");
-                    addNotificationsFromDB(db);
+            syncRemoteNotifications(db);
+            addNotificationsFromDB(db);
+            while (checkFirstNotification()){
+                NotificationInfo n = notifications.poll();
+                if (n == null) {
+                    break;
                 }
-
-
-            } else {
-                Logger.warn("No notifications left in queue.");
-                addNotificationsFromDB(db);
-            }
-
-
-
-            if (checkFirstNotification()){
-                Logger.info("First notification is due.");
-                var n = Objects.requireNonNull(notifications.poll());
-                Notify(Objects.requireNonNull(n));
+                knownNotificationIds.remove(n.getId());
+                Notify(n);
                 Logger.info("Notified: " + n.toString());
-
-
                 db.deleteNotification(n.getId());
-
             }
-
 
             i = i.add(BigInteger.ONE);
-
-            Logger.info("Clock cycle " + i.intValue() + " finished.");
             Thread.sleep(millisecondsToSleep);
         }
     }
 
     public void addNotificationsFromDB(DataBaseWrapper db){
-        ArrayList<NotificationInfo> newNotifications = db.getEarliestNotifications(sampleSizeToLoad);
-        List<NotificationInfo> notificationList = new ArrayList<>(notifications); // it's only necessary for deleting the last element
-
+        var newNotifications = db.getEarliestNotifications(sampleSizeToLoad);
         for (NotificationInfo n : newNotifications) {
-            if (notificationList.contains(n)) continue;
-
-            if (notifications.size() >= sampleSizeToHold) {
-                notificationList.removeLast();
+            if (knownNotificationIds.add(n.getId())) {
+                notifications.offer(n);
             }
-
-            notificationList.add(n);
         }
-
-
-        notifications = new PriorityQueue<>(notificationList);
     }
 
+    public void stop() {
+        isRunning = false;
+    }
 
+    private long normalizeToMillis(long fireAt) {
+        return fireAt < 1_000_000_000_000L ? fireAt * 1000L : fireAt;
+    }
 
+    private void syncRemoteNotifications(DataBaseWrapper db) {
+        long now = System.currentTimeMillis();
+        boolean queueLow = notifications.size() < minQueueSizeBeforeRemoteSync;
+        if (!queueLow && (now - lastRemoteSyncMillis) < remoteSyncIntervalMillis) {
+            return;
+        }
 
+        lastRemoteSyncMillis = now;
+        try {
+            var remoteNotifications = Client.fetchNotifications();
+            for (NotificationInfo remote : remoteNotifications) {
+                NotificationInfo stored = db.upsertNotificationByWebId(remote);
+                if (stored == null) {
+                    continue;
+                }
+                if (knownNotificationIds.add(stored.getId())) {
+                    notifications.offer(stored);
+                } else if (notifications.removeIf(existing -> existing.getId() == stored.getId())) {
+                    notifications.offer(stored);
+                }
+            }
+            Logger.info("Remote sync loaded " + remoteNotifications.size() + " notifications.");
+        } catch (IllegalStateException e) {
+            Logger.warn("Skipping remote sync: " + e.getMessage());
+        }
+    }
 }
