@@ -1,11 +1,13 @@
 import db.DataBaseWrapper;
 import logger.Logger;
 import structures.NotificationInfo;
+import ui.NotificationPopup;
 import web.Client;
 
 import java.math.BigInteger;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.PriorityQueue;
 import java.util.Set;
 
@@ -21,11 +23,13 @@ public class Clock {
     private final long remoteSyncIntervalMillis = 30_000;
     private final int minQueueSizeBeforeRemoteSync = 3;
     private long lastRemoteSyncMillis = 0;
+    private Boolean cachedAdminStatus = null;
 
     public Clock() {}
 
     public void Notify(NotificationInfo info){
         System.out.println("Notifying: " + info.toString());
+        NotificationPopup.show(info);
     }
 
     public boolean checkFirstNotification(){
@@ -51,6 +55,7 @@ public class Clock {
                 Notify(n);
                 Logger.info("Notified: " + n.toString());
                 db.deleteNotification(n.getId());
+                deleteRemoteNotification(n);
             }
 
             i = i.add(BigInteger.ONE);
@@ -100,5 +105,39 @@ public class Clock {
         } catch (IllegalStateException e) {
             Logger.warn("Skipping remote sync: " + e.getMessage());
         }
+    }
+
+    private void deleteRemoteNotification(NotificationInfo info) {
+        if (info.getWebId() == -1) {
+            return;
+        }
+        int webId = info.getWebId();
+
+        try {
+            boolean deleted = Client.deleteNotifications(List.of(webId), false);
+            if (!deleted && isAdmin()) {
+                deleted = Client.deleteNotifications(List.of(webId), true);
+            }
+            if (deleted) {
+                Logger.info("Deleted remote notification webId=" + webId);
+            } else {
+                Logger.warn("Failed to delete remote notification webId=" + webId);
+            }
+        } catch (IllegalStateException e) {
+            Logger.warn("Cannot delete remote notification webId=" + webId + ": " + e.getMessage());
+        }
+    }
+
+    private boolean isAdmin() {
+        if (cachedAdminStatus != null) {
+            return Boolean.TRUE.equals(cachedAdminStatus);
+        }
+        try {
+            cachedAdminStatus = Client.fetchAdminStatus();
+        } catch (IllegalStateException e) {
+            Logger.warn("Cannot fetch admin status: " + e.getMessage());
+            cachedAdminStatus = Boolean.FALSE;
+        }
+        return Boolean.TRUE.equals(cachedAdminStatus);
     }
 }

@@ -270,7 +270,7 @@ public class Main {
         while (true){
             System.out.println("Enter command: ");
             Scanner scanner = new Scanner(System.in);
-            String input = scanner.nextLine();
+            String input = scanner.nextLine().toLowerCase().replaceAll("\\s", "");;
 
             switch (input) {
                 case "exit":
