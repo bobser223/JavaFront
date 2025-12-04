@@ -18,8 +18,11 @@
 # компіляція
 javac -cp "lib/sqlite-jdbc.jar" src/**/*.java
 
-# запуск CLI
+# запуск UI (за замовчуванням)
 java -cp "lib/sqlite-jdbc.jar:src" Main
+
+# запуск CLI-версії
+java -cp "lib/sqlite-jdbc.jar:src" Main --cli
 ```
 
 > Під час першого старту буде створено файл `sample.db` з таблицею `notifications` та журнал `application.log`.
